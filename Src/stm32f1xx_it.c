@@ -40,57 +40,12 @@
 #include <string.h>
 
 // variables declared as external on main
-uint8_t read_in[7];
-struct response_scan_packet_s {
-	uint8_t sync:1;
-    uint8_t communication_error:1;
-    uint8_t reserved2:1;
-	uint8_t reserved3:1;
-	uint8_t reserved4:1;
-	uint8_t reserved5:1;
-	uint8_t reserved6:1;
-	uint8_t reserved7:1;
+volatile uint8_t in_char;
 
-	uint16_t angle;     	// little endian, must be divided by 16.0f [deg]
-	uint16_t distance;		// little endian [cm]
-	uint8_t signal_strength;
-	uint8_t checksum;
-} __attribute__((packed, aligned(1)));
-
-/*
- * create buffer big enough to store 4 bytes (distance and angle)
- * max specs: 1000Hz sample rate for 5Hz -> up to 200 measurements
- * better be safe and consider up to 210 measurements.
- * leave first 2 bytes for scanse ID and measurement counter
- */
-uint8_t i2c_buff_out[842];
-
-uint8_t scanse_count;
-
-// define backup buffer (must be big enough)
-uint8_t scanse_backup_buff[200];
-
-/*
- *  bool var to use in 2 cases:
- *  - to flag we received a new sweep value -> send data through i2c
- *  - when i2c transfer done (should take abt 17ms), can start putting data on buffer again
- */
-uint8_t sweep_completed;
-
-// err counter to know if any checksum error on receiving..
-/*
- * if so and next one still error, than it most likely means we are reading wrong data
- * NOTE: the scanse sweep does not use any start sequence, so if any byte is missed,
- * we are reading shifted bytes, so everything is wrong..
- */
-uint32_t err_crc;
-
-uint8_t count_fin;
-uint16_t err_fin;
+volatile uint16_t head;
+uint8_t rx_buff_in[1024];
 
 
-// function prototype
-uint8_t scanse_checksum( void );
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -238,59 +193,15 @@ void USART1_IRQHandler(void)
   HAL_UART_IRQHandler(&huart1);
   /* USER CODE BEGIN USART1_IRQn 1 */
 
-    /*
-  	HAL_UART_Receive_IT(&huart1, &in_char, 1);
+    HAL_UART_Receive_IT(&huart1, &in_char, 1);
 
   	rx_buff_in[head] = in_char;
-	head++;
-	//*/
-
-    //*
-  	HAL_UART_Receive_IT(&huart1, read_in, 7);
-
-	// checksum check
-	if ( scanse_checksum() ) {
-		// check synch bit
-		if ( read_in[0] & 0x01 ) {
-			sweep_completed = 1;	// this is let the task know we can send data through i2c
-			// debug
-			count_fin = scanse_count;
-			err_fin = err_crc;
-			err_crc = 0;
-
-			// correct
-			scanse_count = 0;
-		}
-
-		if ( sweep_completed ) {
-			// if data not sent through i2c yet, then store in backup buffer first
-			//memcpy(&scanse_backup_buff[scanse_count*4], &read_in[1], 4*sizeof(uint8_t));
-		} else {
-			// store in i2c output buffer and increase measurement counter
-			//memcpy(&i2c_buff_out[2 + scanse_count*4], &read_in[1], 4*sizeof(uint8_t));
-			i2c_buff_out[1] = scanse_count + 1;
-		}
-		++scanse_count;
-	} else {
-		// wrong checksum.. fuck.. increase error counter
-		++err_crc;
-	}//*/
+	head = ++head % 1024;
 
   /* USER CODE END USART1_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */
-volatile uint16_t calculatedSum;
-volatile uint8_t i_coun;
-uint8_t scanse_checksum( void ) {
-	calculatedSum = 0;
-	for(i_coun = 0; i_coun < 6; i_coun++){
-		//add each status byte to the running sum
-		calculatedSum += read_in[i_coun];
-	}
-
-	return (calculatedSum % 255) == read_in[6] ? 1 : 0;
-}
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
 	// re-enable interrupt

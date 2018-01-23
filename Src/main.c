@@ -73,42 +73,43 @@ osThreadId defaultTaskHandle;
 #define SCANSE_I2C_ID			0x73	// random number.. can be changed if conflicting
 
 // buffer for UART interrupt from scanse sweep
-extern uint8_t read_in[7];
+extern volatile uint16_t head;
+volatile uint16_t tail;
+extern uint8_t rx_buff_in[1024];
+
+struct response_scan_packet_s {
+	uint8_t sync:1;
+    uint8_t communication_error:1;
+    uint8_t reserved2:1;
+	uint8_t reserved3:1;
+	uint8_t reserved4:1;
+	uint8_t reserved5:1;
+	uint8_t reserved6:1;
+	uint8_t reserved7:1;
+
+	uint16_t angle;     	// little endian, must be divided by 16.0f [deg]
+	uint16_t distance;		// little endian [cm]
+	uint8_t signal_strength;
+	uint8_t checksum;
+} __attribute__((packed, aligned(1)));
+
 
 // uart out buff
 uint8_t tx_buff[8];
 uint8_t tx2_buff[32];
 
 /*
- * create buffer big enough to store 4 bytes (distance and angle)
+ * create buffer big enough to store 6 bytes (distance and angle)
  * max specs: 1000Hz sample rate for 5Hz -> up to 200 measurements
- * better be safe and consider up to 210 measurements.
+ * better be safe and consider up to 340 measurements.
  * leave first 2 bytes for scanse ID and measurement counter
  */
-extern uint8_t i2c_buff_out[842];
+uint8_t i2c_buff_out[2048];
 
-extern uint8_t scanse_count;
-
-// define backup buffer (must be big enough)
-extern uint8_t scanse_backup_buff[200];
-
-/*
- *  bool var to use in 2 cases:
- *  - to flag we received a new sweep value -> send data through i2c
- *  - when i2c transfer done (should take abt 17ms), can start putting data on buffer again
- */
-extern uint8_t sweep_completed;
+uint16_t scanse_count;
 
 // err counter to know if any checksum error on receiving..
-/*
- * if so and next one still error, than it most likely means we are reading wrong data
- * NOTE: the scanse sweep does not use any start sequence, so if any byte is missed,
- * we are reading shifted bytes, so everything is wrong..
- */
-extern uint32_t err_crc;
-
-extern uint8_t count_fin;
-extern uint16_t err_fin;
+uint8_t err_crc;
 
 /* USER CODE END PV */
 
@@ -342,37 +343,17 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
-/*
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
-
-	// read from interrupt and re-enable interrupt
-	HAL_UART_Receive_IT(&huart1, read_in, 1);
-
-	// checksum check
-	if ( scanse_checksum() ) {
-		// check synch bit
-		if ( read_in[0] & 0x01 ) {
-			sweep_completed = 1;	// this is let the task know we can send data through i2c
-			scanse_count = 0;
-		}
-
-		if ( sweep_completed ) {
-			// if data not sent through i2c yet, then store in backup buffer first
-			//memcpy(&scanse_backup_buff[scanse_count*4], &read_in[1], 4*sizeof(uint8_t));
-		} else {
-			// store in i2c output buffer and increase measurement counter
-			//memcpy(&i2c_buff_out[2 + scanse_count*4], &read_in[1], 4*sizeof(uint8_t));
-			i2c_buff_out[1] = scanse_count + 1;
-		}
-		++scanse_count;
-	} else {
-		// wrong checksum.. fuck.. increase error counter
-		++err_crc;
+volatile uint16_t calculatedSum;
+volatile uint8_t i_coun;
+uint8_t scanse_checksum( uint8_t * read_in ) {
+	calculatedSum = 0;
+	for(i_coun = 0; i_coun < 6; i_coun++){
+		//add each status byte to the running sum
+		calculatedSum += read_in[i_coun];
 	}
 
+	return (calculatedSum % 255) == read_in[6] ? 1 : 0;
 }
-//*/
 /* USER CODE END 4 */
 
 /* StartDefaultTask function */
@@ -382,12 +363,20 @@ void StartDefaultTask(void const * argument)
   /* USER CODE BEGIN 5 */
 	portTickType xLastWakeTime;
 
-	float task_freq = SCANSE_SWEEP_RATE;	// [Hz]
+	float task_freq = SCANSE_SWEEP_RATE * 10;	// [Hz]
 	//float task_freq = 1.;	// [Hz]
 
-	// initialize error variable
+	// initialize variables
+	head = 0;
+	tail = 0;
+	scanse_count = 0;
+
+	// define decoding variables
+	int16_t offset;
+	uint16_t distance;
+	float angle;
+
 	err_crc = 0;
-	sweep_completed = 0;
 
 	// send message to scanse sweep lidar to set settings and start acquisition
 	// TODO: send commands for settings. default values are 5Hz sweep and 500Hz sample rate
@@ -407,10 +396,10 @@ void StartDefaultTask(void const * argument)
 		sprintf((char *)tx_buff, "DS\n");
 		HAL_UART_Transmit(&huart1, tx_buff, 3, 10);
 
-		HAL_UART_Receive(&huart1, read_in, 6, 100);
+		HAL_UART_Receive(&huart1, rx_buff_in, 6, 100);
 
 		// if everything ok on the sensor side, enable uart interrupt to start acquisition
-		if ( strstr((char *)read_in, "DS00") != NULL ) {
+		if ( strstr((char *)rx_buff_in, "DS00") != NULL ) {
 			// enable usart interrupt
 			__HAL_UART_ENABLE_IT(&huart1, UART_IT_RXNE);
 			break;
@@ -429,43 +418,61 @@ void StartDefaultTask(void const * argument)
 
 	while (1) {
 
-		if ( sweep_completed ) {
-			//*
-			// send data through i2c
-			HAL_I2C_Master_Transmit(&hi2c1, 0x11<<1, i2c_buff_out, i2c_buff_out[1] + 2, 20);
-			//*/
+		// get absolute offset between head and tail
+		offset = (head - tail) >= 0 ? head - tail : 1024 + head - tail;
 
-			//sprintf((char *)tx2_buff, "1\r\n");
-			//HAL_UART_Transmit(&huart2, tx2_buff, 3, 10);
+		while ( offset >= 7 ) {
+			// checksum check
+			calculatedSum = 0;
+			for (i_coun = 0; i_coun < 6; i_coun++) {
+				//add each status byte to the running sum
+				calculatedSum += rx_buff_in[(tail + i_coun) % 1024];
+			}
+			if ( (calculatedSum % 255) != rx_buff_in[(tail + 6) % 1024] ) {
+				// error checksum.. could be cause wrong data received, or cause lost some data
+				tail = (++tail) % 1024;
+				--offset;
+				++err_crc;
 
-			sprintf((char *)tx2_buff, "meas: %3d\r\n", count_fin);
-			HAL_UART_Transmit(&huart2, tx2_buff, 11, 10);
+				continue;
+			}
 
-			sweep_completed = 0;
+			// if here, good checksum
 
-			// copy any data in buff backup to i2c_buff_out
-			memcpy(&i2c_buff_out[2], scanse_backup_buff, 4*sizeof(uint8_t)*scanse_count);
-		} else {
-			sprintf((char *)tx2_buff, "0\r\n");
-			HAL_UART_Transmit(&huart2, tx2_buff, 3, 10);
-			// blink led 2 times
-			/*
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-			vTaskDelay(10 / portTICK_RATE_MS);
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-			vTaskDelay(20 / portTICK_RATE_MS);
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-			vTaskDelay(10 / portTICK_RATE_MS);
-			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-			vTaskDelay(20 / portTICK_RATE_MS);
-			//*/
-		}
+			// if synch packet, send previous data through i2c
+			if ( rx_buff_in[tail] & 0x01 ) {
+				sprintf((char *)tx2_buff, "mcou: %3d\r\n", scanse_count);
+				HAL_UART_Transmit(&huart2, tx2_buff, 11, 10);
 
-		if ( err_crc != HAL_OK ) {
+				// send data through i2c
+				i2c_buff_out[0] = SCANSE_I2C_ID;
+				memcpy(&i2c_buff_out[2], &scanse_count, sizeof(uint16_t));
+				HAL_I2C_Master_Transmit(&hi2c1, 0x11<<1, i2c_buff_out, scanse_count + 4, 20);
+
+				scanse_count = 0;
+			}
+
+			// now read packet and store in i2c buff
+			angle = ( (rx_buff_in[(tail + 2) % 1024] << 8) + rx_buff_in[(tail + 1) % 1024] )/16.;
+			distance = (rx_buff_in[(tail + 4) % 1024] << 8) + rx_buff_in[(tail + 3) % 1024];
+
+			// copy in i2c buff out
+			memcpy(&i2c_buff_out[4 + scanse_count*6], &angle, sizeof(float));
+			memcpy(&i2c_buff_out[8 + scanse_count*6], &distance, sizeof(uint16_t));
+
+			++scanse_count;
+			tail = (tail + 7) % 1024;
+			offset -= 7;
+		} // end while
+
+
+		if ( err_crc != 0 ) {
+			sprintf((char *)tx2_buff, "err: %3d\r\n", err_crc);
+			HAL_UART_Transmit(&huart2, tx2_buff, 10, 10);
+
+			err_crc = 0;
+
 			// blink led 1 times
-			sprintf((char *)tx2_buff, "err: %10d\r\n", err_fin);
-			HAL_UART_Transmit(&huart2, tx2_buff, 17, 10);
-
 			/*
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 			vTaskDelay(20 / portTICK_RATE_MS);
