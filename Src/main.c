@@ -262,7 +262,7 @@ static void MX_I2C1_Init(void)
   hi2c1.Instance = I2C1;
   hi2c1.Init.ClockSpeed = 400000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c1.Init.OwnAddress1 = 36;
+  hi2c1.Init.OwnAddress1 = 8;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
   hi2c1.Init.OwnAddress2 = 0;
@@ -345,6 +345,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 volatile uint16_t calculatedSum;
 volatile uint8_t i_coun;
+/*
 uint8_t scanse_checksum( uint8_t * read_in ) {
 	calculatedSum = 0;
 	for(i_coun = 0; i_coun < 6; i_coun++){
@@ -354,6 +355,64 @@ uint8_t scanse_checksum( uint8_t * read_in ) {
 
 	return (calculatedSum % 255) == read_in[6] ? 1 : 0;
 }
+//*/
+volatile uint8_t transferDirection, transferRequested;
+#define TRANSFER_DIR_WRITE      0x1
+#define TRANSFER_DIR_READ       0x0
+uint8_t i2c_buff_in[] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20};
+
+/*
+void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection, uint16_t AddrMatchCode) {
+	UNUSED(AddrMatchCode);
+
+	sprintf((char *)tx2_buff, "h");
+	HAL_UART_Transmit(&huart2, tx2_buff, 1, 10);
+
+	if(hi2c->Instance == I2C1) {
+	  // Master is sending register address
+	  if ( TransferDirection == TRANSFER_DIR_WRITE ) {
+
+		  //HAL_I2C_Slave_Sequential_Receive_IT(&hi2c1, i2c_buff_in, 1, I2C_FIRST_FRAME);
+		  HAL_I2C_Slave_Receive_IT(&hi2c1, i2c_buff_in, 1);
+		  //while (HAL_I2C_GetState(&hi2c1) != HAL_I2C_STATE_LISTEN);
+
+		  //HAL_I2C_Slave_Sequential_Transmit_IT(&hi2c1, i2c_buff_in, 20, I2C_LAST_FRAME);
+		  //while (HAL_I2C_GetState(&hi2c1) != HAL_I2C_STATE_READY);
+
+		  sprintf((char *)tx2_buff, "w");
+	 	  HAL_UART_Transmit(&huart2, tx2_buff, 1, 10);
+	  } else {
+		  HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_buff_in, 2);
+		  //while (HAL_I2C_GetState(&hi2c1) != HAL_I2C_STATE_READY);
+
+		  sprintf((char *)tx2_buff, "r");
+	 	  HAL_UART_Transmit(&huart2, tx2_buff, 1, 10);
+	  }
+	}
+	sprintf((char *)tx2_buff, "g\r\n");
+	HAL_UART_Transmit(&huart2, tx2_buff, 3, 10);
+}
+//*/
+/*
+void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection, uint16_t AddrMatchCode) {
+	//__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
+	HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_buff_out, ((i2c_buff_out[2] << 8) + i2c_buff_out[3]) + 4);
+	HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+}
+//*/
+
+/*
+void HAL_I2C_SxlaveRxCpltCallback(I2C_HandleTypeDef *hi2c) {
+	// this function is called whenever something is received on the i2c line.
+	// here i want to
+	//__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
+
+	//uint8_t i2c_buff_in;
+    //HAL_I2C_Slave_Receive_IT(&hi2c1, &i2c_buff_in, 1);
+	HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+}
+//*/
+uint8_t i2c_sds[] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110};
 /* USER CODE END 4 */
 
 /* StartDefaultTask function */
@@ -413,10 +472,17 @@ void StartDefaultTask(void const * argument)
 	sprintf((char *)tx2_buff, "acquiring..\r\n");
 	HAL_UART_Transmit(&huart2, tx2_buff, 13, 10);
 
+	//__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
+	//HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_buff_out, 20);
+
 	// Initialize the xLastWakeTime variable with the current time.
 	xLastWakeTime = xTaskGetTickCount ();
 
 	while (1) {
+
+		//HAL_I2C_EnableListen_IT(&hi2c1);
+
+		//__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
 
 		// get absolute offset between head and tail
 		offset = (head - tail) >= 0 ? head - tail : 1024 + head - tail;
@@ -430,7 +496,9 @@ void StartDefaultTask(void const * argument)
 			}
 			if ( (calculatedSum % 255) != rx_buff_in[(tail + 6) % 1024] ) {
 				// error checksum.. could be cause wrong data received, or cause lost some data
-				tail = (++tail) % 1024;
+				//tail = (++tail) % 1024;
+				++tail;
+				tail %= 1024;
 				--offset;
 				++err_crc;
 
@@ -447,7 +515,23 @@ void StartDefaultTask(void const * argument)
 				// send data through i2c
 				i2c_buff_out[0] = SCANSE_I2C_ID;
 				memcpy(&i2c_buff_out[2], &scanse_count, sizeof(uint16_t));
-				HAL_I2C_Master_Transmit(&hi2c1, 0x11<<1, i2c_buff_out, scanse_count + 4, 20);
+				//HAL_I2C_Master_Transmit(&hi2c1, 0x11<<1, i2c_buff_out, scanse_count + 4, 20);
+				//HAL_I2C_Slave_Transmit(&hi2c1, i2c_buff_out, scanse_count + 4, 20);
+				//HAL_I2C_Slave_Transmit(&hi2c1, i2c_buff_out, 1, 20);
+				//HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_buff_out, 1);
+				if ( HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_buff_out, 30*6 + 4) ){
+					// make sure IT is re-enabled
+					__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
+				}
+				/*
+				if ( HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_sds, 110) != HAL_OK ) {
+					// make sure IT is re-enabled
+					__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
+				}
+				//*/
+
+				// toggle led
+				HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 
 				scanse_count = 0;
 			}
@@ -482,7 +566,7 @@ void StartDefaultTask(void const * argument)
 		}
 
 		// toggle led
-		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+		//HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 
 		// Wait for the next cycle.
 		vTaskDelayUntil( &xLastWakeTime, 1000 / task_freq / portTICK_RATE_MS );
