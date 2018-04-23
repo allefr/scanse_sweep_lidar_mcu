@@ -56,10 +56,9 @@
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
-I2C_HandleTypeDef hi2c1;
-
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_tx;
 
 osThreadId defaultTaskHandle;
 
@@ -68,31 +67,18 @@ osThreadId defaultTaskHandle;
 
 /* Private variables ---------------------------------------------------------*/
 // define scanse sweep settings
-#define SCANSE_SAMPLE_RATE		1000	// [Hz]
+#define SCANSE_SAMPLE_RATE		500		// [Hz]
 #define SCANSE_SWEEP_RATE		5		// [Hz]
 #define SCANSE_I2C_ID			0x73	// random number.. can be changed if conflicting
+
+#define USE_DMA		1
 
 // buffer for UART interrupt from scanse sweep
 extern volatile uint16_t head;
 volatile uint16_t tail;
-extern uint8_t rx_buff_in[1024];
 
-struct response_scan_packet_s {
-	uint8_t sync:1;
-    uint8_t communication_error:1;
-    uint8_t reserved2:1;
-	uint8_t reserved3:1;
-	uint8_t reserved4:1;
-	uint8_t reserved5:1;
-	uint8_t reserved6:1;
-	uint8_t reserved7:1;
-
-	uint16_t angle;     	// little endian, must be divided by 16.0f [deg]
-	uint16_t distance;		// little endian [cm]
-	uint8_t signal_strength;
-	uint8_t checksum;
-} __attribute__((packed, aligned(1)));
-
+extern uint8_t rx_buff_in[CIRC_BUFF_SIZE];
+uint8_t rx_in_char;
 
 // uart out buff
 uint8_t tx_buff[8];
@@ -100,23 +86,30 @@ uint8_t tx2_buff[32];
 
 /*
  * create buffer big enough to store 6 bytes (distance and angle)
- * max specs: 1000Hz sample rate for 5Hz -> up to 200 measurements
- * better be safe and consider up to 340 measurements.
- * leave first 2 bytes for scanse ID and measurement counter
+ * max specs: 500Hz sample rate for 5Hz -> up to 100 measurements
+ * better be safe and consider up to 110 measurements.
+ * leave first 4 bytes for transaction ID and measurement counter
+ * include additional 12 bytes for pos (x, y) and heading after the initial 4bytes
  */
-uint8_t i2c_buff_out[2048];
+#define MAX_I2C_BUFF_SIZE	2 +2 +4*3 + 6*(int)(SCANSE_SAMPLE_RATE/SCANSE_SWEEP_RATE)
+uint8_t i2c_buff_out[MAX_I2C_BUFF_SIZE];
 
 uint16_t scanse_count;
 
 // err counter to know if any checksum error on receiving..
 uint8_t err_crc;
 
+// variables holding values of pos and heading
+float rob_pos_x = 0.;
+float rob_pos_y = 0.;
+float rob_heading = 0.;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_I2C1_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 void StartDefaultTask(void const * argument);
@@ -155,7 +148,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_I2C1_Init();
+  MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
 
@@ -255,26 +248,6 @@ void SystemClock_Config(void)
   HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
 }
 
-/* I2C1 init function */
-static void MX_I2C1_Init(void)
-{
-
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 400000;
-  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c1.Init.OwnAddress1 = 8;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    _Error_Handler(__FILE__, __LINE__);
-  }
-
-}
-
 /* USART1 init function */
 static void MX_USART1_UART_Init(void)
 {
@@ -313,6 +286,21 @@ static void MX_USART2_UART_Init(void)
 
 }
 
+/** 
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void) 
+{
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
+
+}
+
 /** Configure pins as 
         * Analog 
         * Input 
@@ -329,7 +317,6 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13|GPIO_PIN_14, GPIO_PIN_RESET);
@@ -343,25 +330,80 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-volatile uint16_t calculatedSum;
-volatile uint8_t i_coun;
 /*
-uint8_t scanse_checksum( uint8_t * read_in ) {
-	calculatedSum = 0;
-	for(i_coun = 0; i_coun < 6; i_coun++){
-		//add each status byte to the running sum
-		calculatedSum += read_in[i_coun];
+// DMA complete read callback
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+	if (huart->Instance == huart1.Instance) {
+		// completed receiving 1 byte from DMA to local variable rx_in_char
+		rx_buff_in[head++] = rx_in_char;
+		//head++;
 	}
-
-	return (calculatedSum % 255) == read_in[6] ? 1 : 0;
 }
 //*/
+
+volatile uint16_t calculatedSum;
+volatile uint8_t i_coun;
+
+void initialize_scanse_lidar( void ) {
+	// initialize variables
+	head = 0;
+	tail = 0;
+	scanse_count = 0;
+
+	err_crc = 0;
+
+	// send message to scanse sweep lidar to set settings and start acquisition
+	// TODO: send commands for settings. default values are 5Hz sweep and 500Hz sample rate
+
+	sprintf((char *)tx2_buff, "\r\nstart lidar\r\n");
+	if (USE_DMA) {HAL_UART_Transmit_DMA(&huart2, tx2_buff, 15);}
+	else {HAL_UART_Transmit(&huart2, tx2_buff, 15, 10);}
+
+
+	// make sure the sensor (re)starts as well
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, GPIO_PIN_RESET);
+	HAL_Delay(2000);
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, GPIO_PIN_SET);
+
+	/*
+	HAL_Delay(10000);
+	sprintf((char *)tx_buff, "DS\n");
+	HAL_UART_Transmit(&huart1, tx_buff, 3, 10);
+	HAL_Delay(1000);
+	HAL_UART_Receive_DMA(&huart1, &rx_in_char, 1);
+	//*/
+
+	//*
+	// start acquisition:
+	// the sensor return error till everything is set properly
+	// and motor spinning at correct frequency
+	while (1) {
+		sprintf((char *)tx_buff, "DS\n");
+		HAL_UART_Transmit(&huart1, tx_buff, 3, 10);
+
+		HAL_UART_Receive(&huart1, rx_buff_in, 6, 100);
+
+		// if everything ok on the sensor side, enable uart interrupt to start acquisition
+		if ( strstr((char *)rx_buff_in, "DS00") != NULL ) {
+			// enable usart interrupt
+			__HAL_UART_ENABLE_IT(&huart1, UART_IT_RXNE);
+			//// start DMA read (1byte only)
+			//HAL_UART_Receive_DMA(&huart1, &rx_in_char, 1);
+			break;
+		}
+		// toggle led
+		//HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+
+		// wait 50ms before send start acquisition command again.
+		HAL_Delay(50);
+	} //*/
+}
+
+/*
 volatile uint8_t transferDirection, transferRequested;
 #define TRANSFER_DIR_WRITE      0x1
 #define TRANSFER_DIR_READ       0x0
-uint8_t i2c_buff_in[] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20};
 
-/*
 void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection, uint16_t AddrMatchCode) {
 	UNUSED(AddrMatchCode);
 
@@ -393,13 +435,6 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection, ui
 	HAL_UART_Transmit(&huart2, tx2_buff, 3, 10);
 }
 //*/
-/*
-void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection, uint16_t AddrMatchCode) {
-	//__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
-	HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_buff_out, ((i2c_buff_out[2] << 8) + i2c_buff_out[3]) + 4);
-	HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-}
-//*/
 
 /*
 void HAL_I2C_SxlaveRxCpltCallback(I2C_HandleTypeDef *hi2c) {
@@ -412,7 +447,6 @@ void HAL_I2C_SxlaveRxCpltCallback(I2C_HandleTypeDef *hi2c) {
 	HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 }
 //*/
-uint8_t i2c_sds[] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110};
 /* USER CODE END 4 */
 
 /* StartDefaultTask function */
@@ -423,82 +457,43 @@ void StartDefaultTask(void const * argument)
 	portTickType xLastWakeTime;
 
 	float task_freq = SCANSE_SWEEP_RATE * 10;	// [Hz]
-	//float task_freq = 1.;	// [Hz]
-
-	// initialize variables
-	head = 0;
-	tail = 0;
-	scanse_count = 0;
 
 	// define decoding variables
 	int16_t offset;
 	uint16_t distance;
 	float angle;
 
-	err_crc = 0;
-
-	// send message to scanse sweep lidar to set settings and start acquisition
-	// TODO: send commands for settings. default values are 5Hz sweep and 500Hz sample rate
-
-	sprintf((char *)tx2_buff, "\r\nstart lidar\r\n");
-	HAL_UART_Transmit(&huart2, tx2_buff, 15, 10);
-
-	// make sure the sensor (re)starts as well
-	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, GPIO_PIN_RESET);
-	HAL_Delay(2000);
-	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, GPIO_PIN_SET);
-
-	// start acquisition:
-	// the sensor return error till everything is set properly
-	// and motor spinning at correct frequency
-	while (1) {
-		sprintf((char *)tx_buff, "DS\n");
-		HAL_UART_Transmit(&huart1, tx_buff, 3, 10);
-
-		HAL_UART_Receive(&huart1, rx_buff_in, 6, 100);
-
-		// if everything ok on the sensor side, enable uart interrupt to start acquisition
-		if ( strstr((char *)rx_buff_in, "DS00") != NULL ) {
-			// enable usart interrupt
-			__HAL_UART_ENABLE_IT(&huart1, UART_IT_RXNE);
-			break;
-		}
-		// toggle led
-		//HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-		// wait 50ms before send start acquisition command again.
-		HAL_Delay(50);
-	}
+	// initialize sensor
+	initialize_scanse_lidar();
 
 	sprintf((char *)tx2_buff, "acquiring..\r\n");
-	HAL_UART_Transmit(&huart2, tx2_buff, 13, 10);
+	if (USE_DMA) {HAL_UART_Transmit_DMA(&huart2, tx2_buff, 13);}
+	else {HAL_UART_Transmit(&huart2, tx2_buff, 13, 10);}
 
-	//__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
+	// enable i2c IT
+	////__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
 	//HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_buff_out, 20);
+	//HAL_I2C_EnableListen_IT(&hi2c1);
 
 	// Initialize the xLastWakeTime variable with the current time.
 	xLastWakeTime = xTaskGetTickCount ();
 
 	while (1) {
 
-		//HAL_I2C_EnableListen_IT(&hi2c1);
-
-		//__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
-
 		// get absolute offset between head and tail
-		offset = (head - tail) >= 0 ? head - tail : 1024 + head - tail;
+		offset = (head - tail) >= 0 ? head - tail : CIRC_BUFF_SIZE + head - tail;
 
 		while ( offset >= 7 ) {
 			// checksum check
 			calculatedSum = 0;
 			for (i_coun = 0; i_coun < 6; i_coun++) {
 				//add each status byte to the running sum
-				calculatedSum += rx_buff_in[(tail + i_coun) % 1024];
+				calculatedSum += rx_buff_in[(tail + i_coun) % CIRC_BUFF_SIZE];
 			}
-			if ( (calculatedSum % 255) != rx_buff_in[(tail + 6) % 1024] ) {
+			if ( (calculatedSum % 255) != rx_buff_in[(tail + 6) % CIRC_BUFF_SIZE] ) {
 				// error checksum.. could be cause wrong data received, or cause lost some data
-				//tail = (++tail) % 1024;
 				++tail;
-				tail %= 1024;
+				tail %= CIRC_BUFF_SIZE;
 				--offset;
 				++err_crc;
 
@@ -510,21 +505,21 @@ void StartDefaultTask(void const * argument)
 			// if synch packet, send previous data through i2c
 			if ( rx_buff_in[tail] & 0x01 ) {
 				sprintf((char *)tx2_buff, "mcou: %3d\r\n", scanse_count);
-				HAL_UART_Transmit(&huart2, tx2_buff, 11, 10);
+				if (USE_DMA) {HAL_UART_Transmit_DMA(&huart2, tx2_buff, 11);}
+				else {HAL_UART_Transmit(&huart2, tx2_buff, 11, 10);}
 
-				// send data through i2c
+				// prepare i2c buffer
 				i2c_buff_out[0] = SCANSE_I2C_ID;
 				memcpy(&i2c_buff_out[2], &scanse_count, sizeof(uint16_t));
-				//HAL_I2C_Master_Transmit(&hi2c1, 0x11<<1, i2c_buff_out, scanse_count + 4, 20);
-				//HAL_I2C_Slave_Transmit(&hi2c1, i2c_buff_out, scanse_count + 4, 20);
-				//HAL_I2C_Slave_Transmit(&hi2c1, i2c_buff_out, 1, 20);
-				//HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_buff_out, 1);
-				if ( HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_buff_out, 30*6 + 4) ){
-					// make sure IT is re-enabled
-					__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
-				}
+				memcpy(&i2c_buff_out[4], &rob_pos_x, sizeof(float));
+				memcpy(&i2c_buff_out[8], &rob_pos_y, sizeof(float));
+				memcpy(&i2c_buff_out[12], &rob_heading, sizeof(float));
+
+				// send data i2c interface to be sent when master requests for it
+				//HAL_I2C_Slave_Transmit_DMA(&hi2c1, i2c_buff_out, MAX_I2C_BUFF_SIZE);
 				/*
-				if ( HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_sds, 110) != HAL_OK ) {
+				// TODO: here make sure the i2c line idle, otherwise may create problems
+				if ( HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_buff_out, MAX_I2C_BUFF_SIZE) ){
 					// make sure IT is re-enabled
 					__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
 				}
@@ -537,36 +532,38 @@ void StartDefaultTask(void const * argument)
 			}
 
 			// now read packet and store in i2c buff
-			angle = ( (rx_buff_in[(tail + 2) % 1024] << 8) + rx_buff_in[(tail + 1) % 1024] )/16.;
-			distance = (rx_buff_in[(tail + 4) % 1024] << 8) + rx_buff_in[(tail + 3) % 1024];
+			angle = ( (rx_buff_in[(tail + 2) % CIRC_BUFF_SIZE] << 8) + rx_buff_in[(tail + 1) % CIRC_BUFF_SIZE] )/16.;
+			distance = (rx_buff_in[(tail + 4) % CIRC_BUFF_SIZE] << 8) + rx_buff_in[(tail + 3) % CIRC_BUFF_SIZE];
 
 			// copy in i2c buff out
-			memcpy(&i2c_buff_out[4 + scanse_count*6], &angle, sizeof(float));
-			memcpy(&i2c_buff_out[8 + scanse_count*6], &distance, sizeof(uint16_t));
+			memcpy(&i2c_buff_out[16 + scanse_count*6], &angle, sizeof(float));
+			memcpy(&i2c_buff_out[20 + scanse_count*6], &distance, sizeof(uint16_t));
 
 			++scanse_count;
-			tail = (tail + 7) % 1024;
+			tail = (tail + 7) % CIRC_BUFF_SIZE;
 			offset -= 7;
 		} // end while
 
 
 		if ( err_crc != 0 ) {
 			sprintf((char *)tx2_buff, "err: %3d\r\n", err_crc);
-			HAL_UART_Transmit(&huart2, tx2_buff, 10, 10);
+			if (USE_DMA) {HAL_UART_Transmit_DMA(&huart2, tx2_buff, 10);}
+			else {HAL_UART_Transmit(&huart2, tx2_buff, 10, 10);}
 
 			err_crc = 0;
 
-			// blink led 1 times
+			// blink led 2 times
 			/*
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+			vTaskDelay(20 / portTICK_RATE_MS);
+			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+			vTaskDelay(10 / portTICK_RATE_MS);
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 			vTaskDelay(20 / portTICK_RATE_MS);
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
 			vTaskDelay(10 / portTICK_RATE_MS);
 			//*/
 		}
-
-		// toggle led
-		//HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 
 		// Wait for the next cycle.
 		vTaskDelayUntil( &xLastWakeTime, 1000 / task_freq / portTICK_RATE_MS );

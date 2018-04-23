@@ -20,7 +20,6 @@ Src/main.o: ../Src/main.c \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_cortex.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash_ex.h \
- /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_i2c.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pwr.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim_ex.h \
@@ -84,8 +83,6 @@ Src/main.o: ../Src/main.c \
 /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash.h:
 
 /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash_ex.h:
-
-/Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_i2c.h:
 
 /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pwr.h:
 

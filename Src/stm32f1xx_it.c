@@ -38,6 +38,7 @@
 
 /* USER CODE BEGIN 0 */
 #include <string.h>
+#include "main.h"
 
 // variables declared as external on main
 uint8_t in_char;
@@ -49,8 +50,9 @@ uint8_t rx_buff_in[1024];
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern I2C_HandleTypeDef hi2c1;
+extern DMA_HandleTypeDef hdma_usart2_tx;
 extern UART_HandleTypeDef huart1;
+extern UART_HandleTypeDef huart2;
 
 extern TIM_HandleTypeDef htim1;
 
@@ -170,6 +172,20 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
+* @brief This function handles DMA1 channel7 global interrupt.
+*/
+void DMA1_Channel7_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel7_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel7_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_usart2_tx);
+  /* USER CODE BEGIN DMA1_Channel7_IRQn 1 */
+
+  /* USER CODE END DMA1_Channel7_IRQn 1 */
+}
+
+/**
 * @brief This function handles TIM1 update interrupt.
 */
 void TIM1_UP_IRQHandler(void)
@@ -184,43 +200,6 @@ void TIM1_UP_IRQHandler(void)
 }
 
 /**
-* @brief This function handles I2C1 event interrupt.
-*/
-void I2C1_EV_IRQHandler(void)
-{
-  /* USER CODE BEGIN I2C1_EV_IRQn 0 */
-
-  /* USER CODE END I2C1_EV_IRQn 0 */
-  HAL_I2C_EV_IRQHandler(&hi2c1);
-  /* USER CODE BEGIN I2C1_EV_IRQn 1 */
-
-  //__HAL_I2C_CLEAR_ADDRFLAG(&hi2c1);
-  //__HAL_I2C_CLEAR_FLAG(&hi2c1, I2C_FLAG_AF);
-
-  //uint8_t i2c_buff_in[] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20};
-  //HAL_I2C_Slave_Receive_IT(&hi2c1, &i2c_buff_in, 1);
-  //HAL_I2C_Slave_Transmit_IT(&hi2c1, i2c_buff_in, 20);
-
-  //__HAL_I2C_ENABLE_IT(&hi2c1, I2C_IT_EVT | I2C_IT_BUF | I2C_IT_ERR);
-
-  /* USER CODE END I2C1_EV_IRQn 1 */
-}
-
-/**
-* @brief This function handles I2C1 error interrupt.
-*/
-void I2C1_ER_IRQHandler(void)
-{
-  /* USER CODE BEGIN I2C1_ER_IRQn 0 */
-
-  /* USER CODE END I2C1_ER_IRQn 0 */
-  HAL_I2C_ER_IRQHandler(&hi2c1);
-  /* USER CODE BEGIN I2C1_ER_IRQn 1 */
-
-  /* USER CODE END I2C1_ER_IRQn 1 */
-}
-
-/**
 * @brief This function handles USART1 global interrupt.
 */
 void USART1_IRQHandler(void)
@@ -230,24 +209,39 @@ void USART1_IRQHandler(void)
   /* USER CODE END USART1_IRQn 0 */
   HAL_UART_IRQHandler(&huart1);
   /* USER CODE BEGIN USART1_IRQn 1 */
-
+  //*
     HAL_UART_Receive_IT(&huart1, &in_char, 1);
 
   	rx_buff_in[head] = in_char;
-	//head = ++head % 1024;
-  	++head;
-  	head %= 1024;
-
+	++head;
+  	head %= CIRC_BUFF_SIZE;
+  //*/
   /* USER CODE END USART1_IRQn 1 */
+}
+
+/**
+* @brief This function handles USART2 global interrupt.
+*/
+void USART2_IRQHandler(void)
+{
+  /* USER CODE BEGIN USART2_IRQn 0 */
+
+  /* USER CODE END USART2_IRQn 0 */
+  HAL_UART_IRQHandler(&huart2);
+  /* USER CODE BEGIN USART2_IRQn 1 */
+
+  /* USER CODE END USART2_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
 	// re-enable interrupt
+	/*
 	__HAL_UART_ENABLE_IT(huart, UART_IT_PE);
 	__HAL_UART_ENABLE_IT(huart, UART_IT_ERR);
-	__HAL_UART_ENABLE_IT(&huart1, UART_IT_RXNE);
+	__HAL_UART_ENABLE_IT(huart, UART_IT_RXNE);
+	//*/
 
 	//sprintf(tx_buff_deb, "uartErCb: %d\r\n", huart->ErrorCode);
 	//HAL_UART_Transmit(&huart1, tx_buff_deb, 20, 1);

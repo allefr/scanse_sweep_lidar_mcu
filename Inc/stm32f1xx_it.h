@@ -54,10 +54,10 @@ void BusFault_Handler(void);
 void UsageFault_Handler(void);
 void DebugMon_Handler(void);
 void SysTick_Handler(void);
+void DMA1_Channel7_IRQHandler(void);
 void TIM1_UP_IRQHandler(void);
-void I2C1_EV_IRQHandler(void);
-void I2C1_ER_IRQHandler(void);
 void USART1_IRQHandler(void);
+void USART2_IRQHandler(void);
 
 #ifdef __cplusplus
 }

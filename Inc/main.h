@@ -52,7 +52,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#define CIRC_BUFF_SIZE			1024
 /* USER CODE END Includes */
 
 /* Private define ------------------------------------------------------------*/

@@ -19,7 +19,6 @@ Src/stm32f1xx_it.o: ../Src/stm32f1xx_it.c \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_cortex.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash_ex.h \
- /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_i2c.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pwr.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_tim_ex.h \
@@ -41,7 +40,8 @@ Src/stm32f1xx_it.o: ../Src/stm32f1xx_it.c \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Middlewares/Third_Party/FreeRTOS/Source/include/semphr.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Middlewares/Third_Party/FreeRTOS/Source/include/queue.h \
  /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Middlewares/Third_Party/FreeRTOS/Source/include/event_groups.h \
- /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Middlewares/Third_Party/FreeRTOS/Source/include/timers.h
+ /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Middlewares/Third_Party/FreeRTOS/Source/include/timers.h \
+ /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Inc/main.h
 
 /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal.h:
 
@@ -82,8 +82,6 @@ Src/stm32f1xx_it.o: ../Src/stm32f1xx_it.c \
 /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash.h:
 
 /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_flash_ex.h:
-
-/Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_i2c.h:
 
 /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_pwr.h:
 
@@ -128,3 +126,5 @@ Src/stm32f1xx_it.o: ../Src/stm32f1xx_it.c \
 /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Middlewares/Third_Party/FreeRTOS/Source/include/event_groups.h:
 
 /Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Middlewares/Third_Party/FreeRTOS/Source/include/timers.h:
+
+/Users/sutdcidl/Dropbox/WOKK/SUTD/SUTD_UBS_NS/Code/STM32_projects/scanse_sweep_lidar_mcu/Inc/main.h:
